@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Лабораторная работа №1 - Цветовые модели</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f4f4f9; }
+    h1 { color: #333; }
+    .container { display: flex; gap: 20px; flex-wrap: wrap; }
+    .card { background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); width: 280px; }
+    .card h3 { margin-top: 0; }
+    .input-group { margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; }
+    .input-group label { width: 30px; font-weight: bold; }
+    .input-group input[type="range"] { flex: 1; margin: 0 10px; }
+    .input-group input[type="number"] { width: 60px; }
+    #color-preview { width: 100%; height: 100px; border-radius: 8px; border: 1px solid #ccc; margin-top: 10px; }
+    #warning { color: #d9534f; font-weight: bold; margin-top: 15px; min-height: 24px; }
+    .picker-container { margin-bottom: 15px; }
+  </style>
+</head>
+<body>
+
+  <h1>Конвертер Цветовых Моделей</h1>
+
+  <div class="picker-container">
+    <label for="native-picker"><strong>Выберите цвет из палитры:</strong> </label>
+    <input type="color" id="native-picker" value="#ff0000">
+  </div>
+
+  <div id="warning"></div>
+
+  <div class="container">
+    <div class="card">
+      <h3>RGB</h3>
+      <div class="input-group"><label>R</label><input type="range" id="r-range" min="0" max="255"><input type="number" id="r-num" min="0" max="255"></div>
+      <div class="input-group"><label>G</label><input type="range" id="g-range" min="0" max="255"><input type="number" id="g-num" min="0" max="255"></div>
+      <div class="input-group"><label>B</label><input type="range" id="b-range" min="0" max="255"><input type="number" id="b-num" min="0" max="255"></div>
+    </div>
+
+    <div class="card">
+      <h3>CMYK</h3>
+      <div class="input-group"><label>C%</label><input type="range" id="c-range" min="0" max="100"><input type="number" id="c-num" min="0" max="100"></div>
+      <div class="input-group"><label>M%</label><input type="range" id="m-range" min="0" max="100"><input type="number" id="m-num" min="0" max="100"></div>
+      <div class="input-group"><label>Y%</label><input type="range" id="y-range" min="0" max="100"><input type="number" id="y-num" min="0" max="100"></div>
+      <div class="input-group"><label>K%</label><input type="range" id="k-range" min="0" max="100"><input type="number" id="k-num" min="0" max="100"></div>
+    </div>
+
+    <div class="card">
+      <h3>HSV</h3>
+      <div class="input-group"><label>H°</label><input type="range" id="hsv-h-range" min="0" max="360"><input type="number" id="hsv-h-num" min="0" max="360"></div>
+      <div class="input-group"><label>S%</label><input type="range" id="hsv-s-range" min="0" max="100"><input type="number" id="hsv-s-num" min="0" max="100"></div>
+      <div class="input-group"><label>V%</label><input type="range" id="hsv-v-range" min="0" max="100"><input type="number" id="hsv-v-num" min="0" max="100"></div>
+    </div>
+
+    <div class="card">
+      <h3>LAB</h3>
+      <div class="input-group"><label>L</label><input type="range" id="lab-l-range" min="0" max="100"><input type="number" id="lab-l-num" min="0" max="100"></div>
+      <div class="input-group"><label>a</label><input type="range" id="lab-a-range" min="-128" max="127"><input type="number" id="lab-a-num" min="-128" max="127"></div>
+      <div class="input-group"><label>b</label><input type="range" id="lab-b-range" min="-128" max="127"><input type="number" id="lab-b-num" min="-128" max="127"></div>
+    </div>
+  </div>
+
+  <h3>Предпросмотр цвета:</h3>
+  <div id="color-preview"></div>
+
+  <script>
+    let isUpdating = false;
+
+    function rgbToCmyk(r, g, b) {
+      let rN = r / 255, gN = g / 255, bN = b / 255;
+      let k = 1 - Math.max(rN, gN, bN);
+      if (k === 1) return [0, 0, 0, 100];
+      let c = (1 - rN - k) / (1 - k);
+      let m = (1 - gN - k) / (1 - k);
+      let y = (1 - bN - k) / (1 - k);
+      return [Math.round(c * 100), Math.round(m * 100), Math.round(y * 100), Math.round(k * 100)];
+    }
