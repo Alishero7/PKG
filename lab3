@@ -1,0 +1,196 @@
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <algorithm>
+#include <cmath>
+
+#pragma pack(push, 1)
+struct BMPFileHeader {
+    uint16_t fileType{0x4D42}; // "BM"
+    uint32_t fileSize{0};
+    uint16_t reserved1{0};
+    uint16_t reserved2{0};
+    uint32_t offsetData{0};
+};
+
+struct BMPInfoHeader {
+    uint32_t size{0};
+    int32_t width{0};
+    int32_t height{0};
+    uint16_t planes{1};
+    uint16_t bitCount{0};
+    uint32_t compression{0};
+    uint32_t sizeImage{0};
+    int32_t xPixelsPerMeter{0};
+    int32_t yPixelsPerMeter{0};
+    uint32_t colorsUsed{0};
+    uint32_t colorsImportant{0};
+};
+#pragma pack(pop)
+
+struct RGB {
+    uint8_t b, g, r;
+};
+
+
+bool loadBMP(const std::string& filename, BMPFileHeader& fileHeader, BMPInfoHeader& infoHeader, std::vector<RGB>& pixels) {
+    std::ifstream file(filename, std::ios::binary);
+    if (!file) {
+        std::cerr << "[Ошибка] Не удалось открыть файл: " << filename << std::endl;
+        return false;
+    }
+
+    file.read(reinterpret_cast<char*>(&fileHeader), sizeof(fileHeader));
+    file.read(reinterpret_cast<char*>(&infoHeader), sizeof(infoHeader));
+
+    if (fileHeader.fileType != 0x4D42 || infoHeader.bitCount != 24) {
+        std::cerr << "[Ошибка] Поддерживаются только 24-битные несжатые BMP-файлы." << std::endl;
+        return false;
+    }
+
+    pixels.resize(infoHeader.width * infoHeader.height);
+    int padding = (4 - (infoHeader.width * 3) % 4) % 4;
+
+    file.seekg(fileHeader.offsetData, std::ios::beg);
+    for (int y = 0; y < infoHeader.height; ++y) {
+        file.read(reinterpret_cast<char*>(&pixels[y * infoHeader.width]), infoHeader.width * sizeof(RGB));
+        file.ignore(padding);
+    }
+    return true;
+}
+
+
+bool saveBMP(const std::string& filename, const BMPFileHeader& fileHeader, const BMPInfoHeader& infoHeader, const std::vector<RGB>& pixels) {
+    std::ofstream file(filename, std::ios::binary);
+    if (!file) return false;
+
+    file.write(reinterpret_cast<const char*>(&fileHeader), sizeof(fileHeader));
+    file.write(reinterpret_cast<const char*>(&infoHeader), sizeof(infoHeader));
+
+    int padding = (4 - (infoHeader.width * 3) % 4) % 4;
+    uint8_t padBytes[3] = {0, 0, 0};
+
+    for (int y = 0; y < infoHeader.height; ++y) {
+        file.write(reinterpret_cast<const char*>(&pixels[y * infoHeader.width]), infoHeader.width * sizeof(RGB));
+        file.write(reinterpret_cast<const char*>(padBytes), padding);
+    }
+    return true;
+}
+
+
+inline uint8_t clamp(int value) {
+    if (value < 0) return 0;
+    if (value > 255) return 255;
+    return static_cast<uint8_t>(value);
+}
+
+
+void linearContrast(const std::vector<RGB>& src, std::vector<RGB>& dst, int width, int height) {
+    dst = src;
+    uint8_t minR = 255, maxR = 0;
+    uint8_t minG = 255, maxG = 0;
+    uint8_t minB = 255, maxB = 0;
+
+    for (const auto& p : src) {
+        if (p.r < minR) minR = p.r; if (p.r > maxR) maxR = p.r;
+        if (p.g < minG) minG = p.g; if (p.g > maxG) maxG = p.g;
+        if (p.b < minB) minB = p.b; if (p.b > maxB) maxB = p.b;
+    }
+
+    for (size_t i = 0; i < src.size(); ++i) {
+        dst[i].r = (maxR != minR) ? clamp((src[i].r - minR) * 255 / (maxR - minR)) : src[i].r;
+        dst[i].g = (maxG != minG) ? clamp((src[i].g - minG) * 255 / (maxG - minG)) : src[i].g;
+        dst[i].b = (maxB != minB) ? clamp((src[i].b - minB) * 255 / (maxB - minB)) : src[i].b;
+    }
+}
+
+void equalizeHistogram(const std::vector<RGB>& src, std::vector<RGB>& dst, int width, int height) {
+    dst = src;
+    size_t totalPixels = src.size();
+    
+    std::vector<int> histR(256, 0), histG(256, 0), histB(256, 0);
+    for (const auto& p : src) {
+        histR[p.r]++; histG[p.g]++; histB[p.b]++;
+    }
+
+    std::vector<int> cdfR(256, 0), cdfG(256, 0), cdfB(256, 0);
+    cdfR[0] = histR[0]; cdfG[0] = histG[0]; cdfB[0] = histB[0];
+    for (int i = 1; i < 256; ++i) {
+        cdfR[i] = cdfR[i - 1] + histR[i];
+        cdfG[i] = cdfG[i - 1] + histG[i];
+        cdfB[i] = cdfB[i - 1] + histB[i];
+    }
+
+    for (size_t i = 0; i < totalPixels; ++i) {
+        dst[i].r = clamp(cdfR[src[i].r] * 255 / totalPixels);
+        dst[i].g = clamp(cdfG[src[i].g] * 255 / totalPixels);
+        dst[i].b = clamp(cdfB[src[i].b] * 255 / totalPixels);
+    }
+}
+
+void blurFilter(const std::vector<RGB>& src, std::vector<RGB>& dst, int width, int height) {
+    dst = src;
+    int kernel[3][3] = {
+        { 1, 2, 1 },
+        { 2, 4, 2 },
+        { 1, 2, 1 }
+    };
+    int kernelSum = 16;
+
+    for (int y = 1; y < height - 1; ++y) {
+        for (int x = 1; x < width - 1; ++x) {
+            int sumR = 0, sumG = 0, sumB = 0;
+
+            for (int ky = -1; ky <= 1; ++ky) {
+                for (int kx = -1; kx <= 1; ++kx) {
+                    const RGB& p = src[(y + ky) * width + (x + kx)];
+                    int weight = kernel[ky + 1][kx + 1];
+                    sumR += p.r * weight;
+                    sumG += p.g * weight;
+                    sumB += p.b * weight;
+                }
+            }
+            dst[y * width + x].r = clamp(sumR / kernelSum);
+            dst[y * width + x].g = clamp(sumG / kernelSum);
+            dst[y * width + x].b = clamp(sumB / kernelSum);
+        }
+    }
+}
+
+int main() {
+    setlocale(LC_ALL, "Russian");
+    std::string inputFilename = "input.bmp";
+
+    BMPFileHeader fileHeader;
+    BMPInfoHeader infoHeader;
+    std::vector<RGB> srcPixels;
+
+    std::cout << "=== Лабораторная работа №3. Вариант 2 ===" << std::endl;
+    std::cout << "Загрузка изображения '" << inputFilename << "'..." << std::endl;
+
+    if (!loadBMP(inputFilename, fileHeader, infoHeader, srcPixels)) {
+        std::cout << "Пожалуйста, положите файл 'input.bmp' в папку с программой." << std::endl;
+        return 1;
+    }
+
+    int w = infoHeader.width;
+    int h = infoHeader.height;
+    std::vector<RGB> dstPixels(w * h);
+
+    linearContrast(srcPixels, dstPixels, w, h);
+    saveBMP("output_linear.bmp", fileHeader, infoHeader, dstPixels);
+    std::cout << "[Успех] Сохранено: output_linear.bmp (Линейное контрастирование)" << std::endl;
+
+    
+    equalizeHistogram(srcPixels, dstPixels, w, h);
+    saveBMP("output_equalized.bmp", fileHeader, infoHeader, dstPixels);
+    std::cout << "[Успех] Сохранено: output_equalized.bmp (Эквализация гистограммы)" << std::endl;
+
+   
+    blurFilter(srcPixels, dstPixels, w, h);
+    saveBMP("output_blurred.bmp", fileHeader, infoHeader, dstPixels);
+    std::cout << "[Успех] Сохранено: output_blurred.bmp (Сглаживающий фильтр)" << std::endl;
+
+    std::cout << "\nВсе задачи выполнены успешно!" << std::endl;
+    return 0;
+}
